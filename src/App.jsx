@@ -18,49 +18,110 @@ const STATIONS = [
 
 const NUM_BARS = 52
 
-// ── Starfield ────────────────────────────────────────────────────────────────
+// ── Starfield — warp cockpit view ────────────────────────────────────────────
 function StarField() {
   const canvasRef = useRef(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+
+    let W = window.innerWidth
+    let H = window.innerHeight
+    canvas.width  = W
+    canvas.height = H
+
     const resize = () => {
-      canvas.width  = window.innerWidth
-      canvas.height = window.innerHeight
+      W = window.innerWidth
+      H = window.innerHeight
+      canvas.width  = W
+      canvas.height = H
+      // reset star positions to new bounds
+      stars.forEach(s => resetStar(s, true))
     }
-    resize()
     window.addEventListener('resize', resize)
 
     const ctx = canvas.getContext('2d')
-    const stars = Array.from({ length: 260 }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      r: Math.random() * 1.4 + 0.2,
-      speed: 0.004 + Math.random() * 0.012,
-      offset: Math.random() * Math.PI * 2,
-      // occasional coloured star
-      hue: Math.random() < 0.15 ? (Math.random() < 0.5 ? 200 : 280) : 0,
-    }))
+    const NUM_STARS = 320
 
-    let t = 0
+    const resetStar = (s, spread = false) => {
+      // Stars originate near centre and fly outward (parallax warp)
+      s.x  = (Math.random() - 0.5) * (spread ? W : W * 0.1)
+      s.y  = (Math.random() - 0.5) * (spread ? H : H * 0.1)
+      s.z  = spread ? Math.random() * W : W              // depth
+      s.pz = s.z
+      // colour: mostly white, some cyan/purple
+      const r = Math.random()
+      s.hue = r < 0.10 ? 195 : r < 0.18 ? 270 : null
+    }
+
+    const stars = Array.from({ length: NUM_STARS }, () => {
+      const s = {}
+      resetStar(s, true)
+      return s
+    })
+
+    // Slow warp speed (feels like gentle glide through space)
+    const SPEED = 2.5
     let animId
+
     const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      // Fade trail (shorter = longer streaks)
+      ctx.fillStyle = 'rgba(2,1,12,0.30)'
+      ctx.fillRect(0, 0, W, H)
+
+      const cx = W / 2
+      const cy = H / 2
+
       stars.forEach(s => {
-        const opacity = 0.25 + Math.abs(Math.sin(t * s.speed + s.offset)) * 0.75
-        ctx.fillStyle = s.hue
-          ? `hsla(${s.hue},80%,80%,${opacity})`
-          : `rgba(255,255,255,${opacity})`
+        // Project 3-D → 2-D
+        const sx = (s.x / s.z) * W + cx
+        const sy = (s.y / s.z) * H + cy
+        const px = (s.x / s.pz) * W + cx
+        const py = (s.y / s.pz) * H + cy
+
+        s.pz = s.z
+        s.z -= SPEED
+
+        if (s.z <= 0 || sx < 0 || sx > W || sy < 0 || sy > H) {
+          resetStar(s, false)
+          return
+        }
+
+        // Size grows as star approaches
+        const size = Math.max(0.3, (1 - s.z / W) * 3.5)
+        const brightness = 1 - s.z / W
+
+        const color = s.hue != null
+          ? `hsla(${s.hue},90%,80%,${brightness})`
+          : `rgba(255,255,255,${brightness})`
+
+        // Streak line from previous position
+        ctx.strokeStyle = color
+        ctx.lineWidth   = size
         ctx.beginPath()
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
+        ctx.moveTo(px, py)
+        ctx.lineTo(sx, sy)
+        ctx.stroke()
+
+        // Bright dot at tip
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(sx, sy, size * 0.6, 0, Math.PI * 2)
         ctx.fill()
       })
-      t++
+
+      // Subtle cockpit glow rim at edges
+      const rim = ctx.createRadialGradient(cx, cy, H * 0.3, cx, cy, H * 0.9)
+      rim.addColorStop(0, 'transparent')
+      rim.addColorStop(1, 'rgba(0,30,80,0.18)')
+      ctx.fillStyle = rim
+      ctx.fillRect(0, 0, W, H)
+
       animId = requestAnimationFrame(draw)
     }
-    draw()
 
+    draw()
     return () => {
       cancelAnimationFrame(animId)
       window.removeEventListener('resize', resize)
